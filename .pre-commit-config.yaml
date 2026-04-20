@@ -2,21 +2,32 @@ default_language_version:
   python: python3.12
 
 repos:
+  # ── General file hygiene ──────────────────────────────────────
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        exclude: ^web/types/api\.d\.ts$
+        exclude: ^types/api\.d\.ts$
       - id: end-of-file-fixer
-        exclude: ^web/types/api\.d\.ts$
+        exclude: ^types/api\.d\.ts$
       - id: check-yaml
       - id: check-toml
+      - id: check-json
       - id: check-added-large-files
         args: ["--maxkb=500"]
       - id: check-merge-conflict
       - id: mixed-line-ending
         args: ["--fix=lf"]
+      - id: detect-private-key
 
+  # ── Secret scanning (fast, local) ────────────────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit]
+
+  # ── Python: lint + format ─────────────────────────────────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
@@ -24,35 +35,44 @@ repos:
         args: ["--fix"]
       - id: ruff-format
 
+  # ── Python: type-check (pre-push, slower) ────────────────────
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.11.2
     hooks:
       - id: mypy
+        stages: [pre-push]
         additional_dependencies:
           - pydantic>=2.8
           - pydantic-settings>=2.4
           - structlog>=24.4
           - types-python-dateutil
         args: ["--config-file=mypy.ini"]
-        # Só checa código em ingestion/ e api/ (exclui tests/ + web/ + supabase/).
         files: ^(ingestion|api)/(?!.*tests/).*\.py$
 
-  # Hook local pra prettier + eslint em web/ — roda direto via pnpm pra não
-  # duplicar config entre pre-commit e o CI do Nuxt.
+  # ── Python: SAST — bandit (pre-push) ─────────────────────────
   - repo: local
     hooks:
-      - id: web-lint
-        name: web-lint (eslint + prettier em arquivos web/)
+      - id: bandit
+        name: bandit (SAST Python)
         language: system
+        stages: [pre-push]
         pass_filenames: false
-        files: ^web/.*\.(ts|tsx|vue|js|mjs|cjs|json|md)$
-        entry: bash -c "cd web && pnpm lint"
+        entry: bash -c "uv run bandit -r ingestion/ api/ -c pyproject.toml -ll -q"
+        files: ^(ingestion|api)/.*\.py$
 
+      # Unit tests only — fast, no DB required (pre-push)
+      - id: pytest-unit
+        name: pytest (unit tests)
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        entry: bash -c "uv run pytest -m 'not integration' -q --tb=short"
+
+      # OpenAPI drift check — manual only (too slow for every commit)
       - id: openapi-types-drift
-        name: openapi-types-drift (web/types/api.d.ts sincronizado)
+        name: openapi-types-drift (types/api.d.ts sincronizado)
         language: system
         pass_filenames: false
-        # Só roda quando o schema pode ter mudado.
-        files: ^(api/.*\.py|web/types/api\.d\.ts)$
+        files: ^(api/.*\.py|types/api\.d\.ts)$
         entry: bash scripts/generate-api-types.sh --check
         stages: [manual]

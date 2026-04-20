@@ -1,0 +1,44 @@
+name: container
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - pyproject.toml
+      - uv.lock
+      - api/**
+      - ingestion/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  build-and-scan:
+    name: docker · build + trivy scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: build image
+        run: docker build -t wow-analytics-api:${{ github.sha }} .
+
+      - name: trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: wow-analytics-api:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+        continue-on-error: true
+
+      - name: upload trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif

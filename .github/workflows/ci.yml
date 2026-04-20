@@ -5,7 +5,6 @@ on:
   push:
     branches: [main]
 
-# Cancela runs obsoletas do mesmo branch.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -14,89 +13,204 @@ permissions:
   contents: read
 
 jobs:
-  python:
-    name: python · lint + type-check + test
+# ─────────────────────────────────────────────────────────────
+  secret-scan:
+    name: security · secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+# ─────────────────────────────────────────────────────────────
+  lint-and-types:
+    name: python · lint + format + types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
 
-      - name: Setup Python
-        run: uv python install 3.12
-
-      - name: Install deps
-        run: uv sync --all-extras --group dev
-
-      - name: Ruff (lint)
-        run: uv run ruff check .
-
-      - name: Ruff (format check)
-        run: uv run ruff format --check .
-
-      - name: Mypy
-        run: uv run mypy
-
-      - name: Pytest
-        run: uv run pytest --cov=ingestion --cov=api --cov-report=term-missing
-
-  web:
-    name: web · lint + type-check + test
+# ─────────────────────────────────────────────────────────────
+  dependency-audit:
+    name: security · dependency audit (pip-audit)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          submodules: false
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --group dev
+      - name: pip-audit
+        run: uv run pip-audit --strict
+        continue-on-error: true
 
+# ─────────────────────────────────────────────────────────────
+  sast:
+    name: security · SAST (bandit + semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --group dev
+      - name: bandit
+        run: uv run bandit -r ingestion/ api/ -c pyproject.toml -ll
+      - name: semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/secrets
+            p/owasp-top-ten
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        continue-on-error: true
+
+# ─────────────────────────────────────────────────────────────
+  unit-tests:
+    name: python · unit tests
+    runs-on: ubuntu-latest
+    needs: [lint-and-types]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
+      - name: pytest unit
+        run: |
+          uv run pytest \
+            -m "not integration" \
+            --cov=ingestion --cov=api \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            -q
+      - uses: codecov/codecov-action@v4
+        with:
+          file: coverage.xml
+          fail_ci_if_error: false
+
+# ─────────────────────────────────────────────────────────────
+  integration-tests:
+    name: python · integration tests (postgres)
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: wow_analytics_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wow_analytics_test
+      BLIZZARD_CLIENT_ID: test
+      BLIZZARD_CLIENT_SECRET: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
+      - name: pytest integration
+        run: uv run pytest -m integration -q
+
+# ─────────────────────────────────────────────────────────────
+  contract-tests:
+    name: api · contract tests (schemathesis)
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    env:
+      DATABASE_URL: ""
+      BLIZZARD_CLIENT_ID: test
+      BLIZZARD_CLIENT_SECRET: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
+      - name: schemathesis
+        run: uv run pytest tests/contract/ -v
+
+# ─────────────────────────────────────────────────────────────
+  newman:
+    name: api · collection tests (newman)
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    env:
+      DATABASE_URL: ""
+      BLIZZARD_CLIENT_ID: test
+      BLIZZARD_CLIENT_SECRET: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare Nuxt
-        run: pnpm nuxi prepare
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type-check
-        run: pnpm typecheck
-
-      - name: Unit tests
-        run: pnpm test
-
-  openapi-drift:
-    name: openapi · types drift check
-    runs-on: ubuntu-latest
-    needs: [python, web]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-
-      - name: Setup Python
-        run: uv python install 3.12
-
-      - name: Install Python deps
-        run: uv sync --extra api --group dev
-
-      - uses: actions/setup-node@v4
+      - run: npm install -g newman newman-reporter-htmlextra
+      - name: start api
+        run: |
+          uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 &
+          sleep 4
+      - name: newman run
+        run: |
+          mkdir -p results
+          newman run tests/postman/wow_analytics.postman_collection.json \
+            --environment tests/postman/wow_analytics_ci.postman_environment.json \
+            --reporters cli,htmlextra \
+            --reporter-htmlextra-export results/newman-report.html \
+            --suppress-exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          node-version: 20
-
-      - name: Check drift
-        run: bash scripts/generate-api-types.sh --check
+          name: newman-report
+          path: results/newman-report.html

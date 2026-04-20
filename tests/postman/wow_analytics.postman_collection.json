@@ -1,0 +1,108 @@
+{
+  "info": {
+    "name": "WoW Analytics API",
+    "description": "Postman collection for WoW Analytics API. Run via Newman in CI or manually via Postman.\n\nAll test assertions are inline in each request.\nEnvironment variables: {{base_url}}, {{test_realm}}, {{test_character}}",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Response time < 500ms', () => pm.expect(pm.response.responseTime).to.be.below(500));",
+                  "pm.test('Content-Type JSON', () => pm.response.to.have.header('Content-Type', /json/));",
+                  "const body = pm.response.json();",
+                  "pm.test('Has status field', () => pm.expect(body).to.have.property('status'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Characters",
+      "item": [
+        {
+          "name": "GET /characters/:region/:realm/:name — found",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/characters/{{test_region}}/{{test_realm}}/{{test_character}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 or 404', () => pm.expect([200, 404]).to.include(pm.response.code));",
+                  "pm.test('Response time < 2000ms', () => pm.expect(pm.response.responseTime).to.be.below(2000));",
+                  "pm.test('Content-Type JSON', () => pm.response.to.have.header('Content-Type', /json/));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('Has name field', () => pm.expect(body).to.have.property('name'));",
+                  "  pm.test('Has class field', () => pm.expect(body).to.have.property('class_name'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /characters/:region/:realm/:name — not found",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/characters/us/azralon/characterdoesnotexistxyz"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Response time < 500ms', () => pm.expect(pm.response.responseTime).to.be.below(500));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Stats",
+      "item": [
+        {
+          "name": "GET /stats/classes",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/stats/classes?region=us",
+              "query": [{"key": "region", "value": "us"}]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 or 503', () => pm.expect([200, 503]).to.include(pm.response.code));",
+                  "pm.test('Response time < 1000ms', () => pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

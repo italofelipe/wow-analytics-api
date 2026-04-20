@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "cd web && pnpm install --frozen-lockfile && pnpm build",
+  "outputDirectory": "web/.output/public",
+  "installCommand": "echo 'skip root install'",
+  "framework": null,
+  "functions": {
+    "api/main.py": {
+      "runtime": "python3.12"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/main.py" }
+  ],
+  "env": {
+    "PYTHONUNBUFFERED": "1"
+  }
+}

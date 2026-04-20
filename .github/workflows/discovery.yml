@@ -1,0 +1,58 @@
+name: discovery
+
+on:
+  schedule:
+    - cron: "0 6 * * *"          # 06:00 UTC diário
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: "csv de regiões (default: us,eu)"
+        required: false
+        default: "us,eu"
+      realm_limit:
+        description: "máximo de realms por região (debug)"
+        required: false
+        default: ""
+
+concurrency:
+  group: discovery
+  cancel-in-progress: false     # runs sequenciais pra respeitar rate limit
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+      BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+      BLIZZARD_REGIONS: ${{ inputs.regions || 'us,eu' }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ vars.R2_BUCKET || 'wow-analytics-raw' }}
+      SENTRY_DSN_API: ${{ secrets.SENTRY_DSN_API }}
+      SENTRY_ENVIRONMENT: production
+      LOG_FORMAT: json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - run: uv python install 3.12
+      - run: uv sync --extra ingestion
+
+      - name: Run discovery
+        run: |
+          args=""
+          if [ -n "${{ inputs.realm_limit }}" ]; then
+            args="--realm-limit ${{ inputs.realm_limit }}"
+          fi
+          uv run python -m ingestion.pipelines.run_discovery $args

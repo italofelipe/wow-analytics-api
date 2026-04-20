@@ -1,0 +1,32 @@
+name: aggregate
+
+on:
+  schedule:
+    - cron: "30 4,16 * * *"       # ~30min depois de cada snapshot
+  workflow_dispatch:
+
+concurrency:
+  group: aggregate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SENTRY_DSN_API: ${{ secrets.SENTRY_DSN_API }}
+      SENTRY_ENVIRONMENT: production
+      LOG_FORMAT: json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.12
+      - run: uv sync --extra ingestion
+      - run: uv run python -m ingestion.pipelines.run_aggregate

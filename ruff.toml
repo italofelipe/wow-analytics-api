@@ -1,0 +1,40 @@
+line-length = 100
+target-version = "py312"
+extend-exclude = ["web", "supabase", ".venv"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "ASYNC",# async checks
+    "RUF",  # ruff-specific
+    "N",    # naming
+    "TID",  # tidy-imports
+    "PL",   # pylint
+    "PT",   # pytest-style
+]
+ignore = [
+    "PLR0913",  # too many arguments — collectors/services naturalmente recebem deps
+    "PLR2004",  # magic values — deixamos pontuais em testes
+    "E501",     # line-too-long: o formatter cuida
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["PLR2004", "S101", "PT004"]
+"ingestion/pipelines/*.py" = ["PLR0915"]  # pipelines podem ter setup longo
+
+[lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+known-first-party = ["ingestion", "api"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

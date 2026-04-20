@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+
+# uv
+.uv/
+
+# Node
+node_modules/
+.pnpm-store/
+.pnp.*
+
+# Nuxt
+web/.nuxt/
+web/.output/
+web/.data/
+web/dist/
+web/.vercel/
+
+# Playwright
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/playwright/.cache/
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+**/supabase/seed.dev.sql
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Sentry
+.sentryclirc

@@ -1,0 +1,3 @@
+-- Seeds reaplicados em `supabase db reset`.
+-- Fase 0: vazio — as migrations da Fase 1 vão popular dimensions via pipeline
+-- `run_bootstrap.py` (que faz /data/wow/realm/index etc.).

@@ -25,13 +25,35 @@ supabase start
 uvicorn api.main:app --reload
 ```
 
-## Layer rules (enforced in PR review)
+## Architecture: Hexagonal (Ports & Adapters)
 
-- `ingestion/clients/`: HTTP only — no asyncpg/aioboto3 imports
-- `ingestion/collectors/`: No asyncpg/aioboto3 — receives clients, returns domain dataclasses
-- `ingestion/repositories/`: Only layer that touches Postgres or R2 — no httpx
+```
+domain/ ←── ports/ ←── collectors/
+                   ↗
+clients/ / repositories/  (implement ports, do not inherit)
+pipelines/ / routers/     (wiring: instantiate adapters, inject into collectors)
+```
+
+### Layer rules (enforced in PR review)
+
+- `ingestion/ports/`: Protocol definitions only — no I/O, no business logic
+- `ingestion/domain/`: Pure pydantic/stdlib — no I/O imports of any kind
+- `ingestion/clients/`: HTTP adapters — implement ports, no asyncpg/aioboto3
+- `ingestion/repositories/`: DB/R2 adapters — implement ports, no httpx
+- `ingestion/collectors/`: Application services — import only from `ports/` and `domain/`
 - `ingestion/pipelines/` and `api/routers/`: Wiring only — instantiate and inject
-- `ingestion/domain/`: Pure pydantic/stdlib — no I/O
+
+### TDD workflow
+
+1. Write test using `FakeXxxAdapter` from `tests/unit/fakes/`
+2. Test fails (NotImplementedError) — implement the collector
+3. Test passes — implement the real adapter (client or repository)
+4. Integration test verifies the real adapter against Supabase local
+
+### Fakes
+
+All ports have in-memory fake implementations in `ingestion/tests/unit/fakes/`.
+`test_port_contracts.py` asserts `isinstance(fake, Port)` for every pair.
 
 ## Running pipelines manually
 

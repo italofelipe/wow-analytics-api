@@ -3,13 +3,14 @@
 Regras:
 - Imutáveis (pydantic `frozen=True`) pra evitar mutação acidental entre camadas.
 - Sem dependências de I/O.
-- Naming: `Ref` = identificador, `Model` completo = objeto de leitura,
-  novos campos entram opcionais quando a fonte pode não ter.
+- Naming: `Ref` = identificador, model completo = objeto de leitura.
+  Novos campos entram opcionais quando a fonte pode não ter.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,10 +24,12 @@ Region = Literal["us", "eu", "kr", "tw"]
 Faction = Literal["alliance", "horde", "neutral"]
 
 
+# ─── Core domain ─────────────────────────────────────────────────────────────
+
 class CharacterRef(_Frozen):
     """Identificador mínimo e estável de um personagem.
 
-    Chave natural é (region, realm_slug, name) lowercase.
+    Chave natural: (region, realm_slug, name) lowercase.
     """
 
     region: Region
@@ -77,3 +80,55 @@ class MythicRun(_Frozen):
     duration_ms: int = Field(ge=0)
     in_time: bool
     score: float | None = None
+
+
+# ─── Supporting domain types (used by ports) ─────────────────────────────────
+
+class RealmInfo(_Frozen):
+    """Dados básicos de um realm, vindos do índice da Blizzard."""
+
+    slug: str
+    name: str
+    region: Region
+    locale: str = "en_US"
+    is_connected: bool = True
+
+
+class SeasonInfo(_Frozen):
+    """Dados de uma temporada de M+, vindos da Blizzard."""
+
+    slug: str
+    name: str
+    region: Region
+    is_current: bool = False
+
+
+class LeaderboardEntry(_Frozen):
+    """Entrada de leaderboard do Raider.IO — usada pelo discovery pipeline."""
+
+    ref: CharacterRef
+    score: float = Field(ge=0)
+    rank: int = Field(ge=1)
+    class_slug: str
+    spec_slug: str | None = None
+
+
+# ─── Pipeline run tracking ────────────────────────────────────────────────────
+
+class PipelineStatus(str, Enum):
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED  = "failed"
+
+
+class IngestionRun(_Frozen):
+    """Registro de uma execução de pipeline — persiste em ingestion_runs."""
+
+    id: str
+    pipeline: str
+    status: PipelineStatus
+    started_at: datetime
+    finished_at: datetime | None = None
+    processed: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    meta: dict[str, str] = Field(default_factory=dict)
